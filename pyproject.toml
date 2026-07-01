@@ -1,0 +1,91 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "siquid-monitor"
+version = "0.1.0"
+description = "Playback-mock monitoring dashboard for the SiQUID long-distance QKD demonstration (proof of concept)."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Jožef Stefan Institute (IJS)" },
+    { name = "Gregor Cerar", email = "gregor.cerar@ijs.si" },
+]
+keywords = ["QKD", "quantum", "entanglement", "monitoring", "dashboard", "SiQUID"]
+# PyPI (and TestPyPI) refuse any upload carrying a "Private ::" classifier — keeps this internal.
+classifiers = ["Private :: Do Not Upload"]
+
+# Runtime dependencies: what's needed to serve the dashboard.
+dependencies = [
+    "dash>=3.0",
+    "plotly>=6.0",
+    "pandas>=2.0",
+    "numpy>=2.0",
+]
+
+[project.optional-dependencies]
+# Verification/authoring tooling — NOT needed to run the app.
+# kaleido (+ a headless Chrome it fetches) renders figures to static images;
+# requests drives the HTTP smoke tests.
+dev = [
+    "kaleido>=1.0",
+    "requests>=2.31",
+    "pre-commit>=3.5",
+    "ruff>=0.6",
+]
+# Sandbox notebook (notebooks/viz_explore.ipynb).
+notebook = [
+    "jupyter",
+    "nbconvert",
+    "ipykernel",
+    "matplotlib",
+]
+
+[project.scripts]
+siquid-monitor = "siquid_monitor.app:main"
+
+[project.urls]
+"SiQUID project" = "https://siquid.fmf.uni-lj.si/"
+"SiQUID (gov.si)" = "https://www.gov.si/zbirke/projekti-in-programi/siquid/"
+
+[tool.hatch.build.targets.wheel]
+packages = ["siquid_monitor"]
+
+[tool.ruff]
+# Make Python style consistent across projects. Defaults: https://docs.astral.sh/ruff/configuration/
+line-length = 120
+target-version = "py312"
+# Standard exclusions + these dirs. `external` is the partner clone and must never be touched.
+extend-exclude = ["experimental", "deprecated", "todo", "tmp", "external"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    #"D",  # pydocstyle
+
+    "YTT", # flake8-2020
+    # "CPY", # flake8-copyright (preview-only; silenced for now)
+    "SIM", # flake8-simplify
+    # "TRY", # tryceratops
+]
+
+ignore = [
+    "E501", # LineTooLong
+    "E731", # DoNotAssignLambda
+    # "S101", # use of assert detected
+    "F401", # remove unused imports
+    "E402", # Module level import not at top of file
+]
+
+unfixable = [
+    "B",
+]

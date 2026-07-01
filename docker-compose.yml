@@ -1,0 +1,10 @@
+# Convenience runner for the PoC dashboard.
+#   docker compose up --build   ->  http://127.0.0.1:8050
+# Mounts the partner clone's recorded data read-only into the container.
+services:
+  monitor:
+    build: .
+    ports:
+      - "8050:8050"
+    volumes:
+      - ./external/long-distance-entanglement/Data:/data:ro

@@ -1,0 +1,25 @@
+# Pre-commit hooks for the SiQUID visualization project.
+# The partner clone under external/ is never touched (it's gitignored anyway).
+exclude: '^external/'
+
+repos:
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.9.1
+    hooks:
+      - id: nbstripout          # strip notebook outputs before commit
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff-check          # lint (auto-applies safe fixes)
+        args: [--fix]
+      - id: ruff-format         # format Python (and notebook code cells)
+
+  - repo: local
+    hooks:
+      - id: build-public-docs
+        name: build public docs (docs/ <- internal/)
+        entry: python tools/build_public_docs.py
+        language: system
+        always_run: true          # internal/ is gitignored, so file-triggers won't fire
+        pass_filenames: false

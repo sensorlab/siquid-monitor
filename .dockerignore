@@ -1,0 +1,11 @@
+# Keep the build context small; none of this belongs in the image.
+.git
+.venv
+external
+notebooks
+resources
+__pycache__
+*.py[cod]
+.ipynb_checkpoints
+*.md
+!README.md
