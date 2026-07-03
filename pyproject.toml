@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "siquid-monitor"
 version = "0.1.0"
-description = "Playback-mock monitoring dashboard for the SiQUID long-distance QKD demonstration (proof of concept)."
+description = "Monitoring dashboard for the SiQUID long-distance QKD demonstration — currently a recorded-data playback proof of concept."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"

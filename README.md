@@ -1,9 +1,11 @@
-# SiQUID visualization
+# SiQUID monitor
 
-Monitoring / visualization work for the SiQUID long-distance QKD demonstration
-(Deliverable **D5.3**). This project is **separate from** the partner acquisition
-codebase — it only *reads* the recorded metrics and replays them as an honest,
-non-live dashboard. It does not recompute any physics.
+Monitoring dashboard for the SiQUID long-distance QKD demonstration (Deliverable **D5.3**).
+**Currently a recorded-data playback proof-of-concept** — it reads recorded metrics and
+replays them as an honest, non-live dashboard, and does not drive hardware or recompute
+physics. It is designed to grow into a proper (live) monitoring tool: the data layer is
+source-agnostic, so the recorded source can later be swapped for a live feed without
+changing the figures.
 
 > ⚠️ **Proof of concept — not a production application.** This is a demonstration
 > of monitoring methodology built on a single recorded dataset. It replays static,
@@ -11,6 +13,8 @@ non-live dashboard. It does not recompute any physics.
 > no authentication, persistence, or hardening. Do not deploy it as-is.
 
 ![Headline QKD panel — visibility and QBER over time with a ±1σ Poisson band](assets/screenshots/headline.png)
+
+▶ **[Watch the demo screencast](assets/SiQUID-dashboard-demo.mp4)** — the running dashboard with KPI tiles, tab navigation, and virtual-clock playback.
 
 ## Layout
 
