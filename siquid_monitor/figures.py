@@ -9,6 +9,8 @@ Honest-replay rules implemented here:
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -131,10 +133,12 @@ PLOT_MEDIAN_COLS = [
 
 
 def precompute_medians(m, cols=PLOT_MEDIAN_COLS):
-    """Add `<col>__med` gap-aware-median columns to `m` in place (call once after load)."""
-    for c in cols:
-        if c in m.columns:
-            m[c + "__med"] = rmed(m["t"], m[c]).to_numpy()
+    """Add `<col>__med` gap-aware-median columns to `m` in place (call once after load).
+    Assigned in one block to avoid fragmenting the (already wide) frame."""
+    meds = {c + "__med": rmed(m["t"], m[c]).to_numpy() for c in cols if c in m.columns}
+    with warnings.catch_warnings():  # bulk add on a wide frame -> benign fragmentation hint
+        warnings.simplefilter("ignore", pd.errors.PerformanceWarning)
+        m[list(meds)] = pd.DataFrame(meds, index=m.index)
     return m
 
 
@@ -170,8 +174,12 @@ def precompute_poisson(m):
     """Add `vis_sigma_total` (per-measurement Poisson 1σ) and its gap-aware-smoothed
     `vis_sigma_total__sm` to `m` in place (call once after load, like precompute_medians)."""
     s = poisson_sigma_vis_total(m)
-    m["vis_sigma_total"] = s.to_numpy()
-    m["vis_sigma_total__sm"] = rmed(m["t"], s).to_numpy()
+    with warnings.catch_warnings():  # bulk add on a wide frame -> benign fragmentation hint
+        warnings.simplefilter("ignore", pd.errors.PerformanceWarning)
+        m[["vis_sigma_total", "vis_sigma_total__sm"]] = pd.DataFrame(
+            {"vis_sigma_total": s.to_numpy(), "vis_sigma_total__sm": rmed(m["t"], s).to_numpy()},
+            index=m.index,
+        )
     return m
 
 

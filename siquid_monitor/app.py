@@ -38,8 +38,10 @@ F.precompute_poisson(M)  # precompute Poisson 1σ band for the headline
 T0 = float(M.timestamp.min())
 T1 = float(M.timestamp.max())
 SPAN = T1 - T0
-T0_DT = to_local(T0)  # Europe/Ljubljana, matches the measurements' `t` column
-T1_DT = to_local(T1)
+# floor to seconds: epoch-float -> Timestamp carries nonzero nanoseconds, which Plotly warns about
+# when serialising the fixed x-axis range. (The measurements' `t` column is likewise floored, to ms.)
+T0_DT = to_local(T0).floor("s")  # Europe/Ljubljana, matches the measurements' `t` column
+T1_DT = to_local(T1).floor("s")
 
 
 def _fmt_cps(x: float) -> str:

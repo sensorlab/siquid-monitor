@@ -99,25 +99,23 @@ class Dataset:
 def load_repo_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
     """Load the LJ-Drnovo CSVs from the partner clone (external/…/Data) into a Dataset."""
     data_dir = Path(data_dir)
-    ar = pd.read_csv(data_dir / "alice_results.csv").sort_values("timestamp").reset_index(drop=True)
-    it = pd.read_csv(data_dir / "qber_iterlog.csv").sort_values("timestamp").reset_index(drop=True)
+    # .copy() consolidates the freshly-read (wide, block-fragmented) frame so the few single-column
+    # inserts below don't each raise pandas' PerformanceWarning.
+    ar = pd.read_csv(data_dir / "alice_results.csv").sort_values("timestamp").reset_index(drop=True).copy()
+    it = pd.read_csv(data_dir / "qber_iterlog.csv").sort_values("timestamp").reset_index(drop=True).copy()
 
     # display time = Europe/Ljubljana local (measurement site). floor to ms: epoch-second
     # floats carry nonzero nanoseconds -> Plotly warns per point (floods logs / burns CPU).
     ar["t"] = to_local(ar["timestamp"]).dt.floor("ms")
     it["t"] = to_local(it["timestamp"]).dt.floor("ms")
-    ar["coinc_rate"] = ar["total_coincidences"] / ar["overlap_duration_sec"]
-    ar["C_correlated"] = ar[[f"C_{lab}" for lab in CORRELATED]].sum(axis=1)
-    ar["C_error"] = ar[[f"C_{lab}" for lab in ERRORS]].sum(axis=1)
-    # exposure length changed 10 s -> 20 s mid-run, so plot correlated/error as RATES (cps), not raw counts
-    ar["corr_rate"] = ar["C_correlated"] / ar["overlap_duration_sec"]
-    ar["err_rate"] = ar["C_error"] / ar["overlap_duration_sec"]
+    overlap = ar["overlap_duration_sec"]
+    c_corr = ar[[f"C_{lab}" for lab in CORRELATED]].sum(axis=1)
+    c_err = ar[[f"C_{lab}" for lab in ERRORS]].sum(axis=1)
 
     # CHSH-mode rows (from 2026-06-24) log CHSH but leave visibility/QBER blank, though their same-basis
     # counts ARE present. Recompute those from C_* with the exact logged formula (verified byte-identical
-    # on standard rows) so visibility/QBER are continuous. Fill ONLY blanks; flag with `vis_recomputed`.
+    # on standard rows) so visibility/QBER are continuous. Fill ONLY blanks (assigns to EXISTING columns).
     need = ar["QBER_total"].isna()
-    ar["vis_recomputed"] = need
     with np.errstate(divide="ignore", invalid="ignore"):
         v_hv = (ar.C_HH + ar.C_VV - ar.C_HV - ar.C_VH) / (ar.C_HH + ar.C_VV + ar.C_HV + ar.C_VH)
         v_da = (ar.C_DD + ar.C_AA - ar.C_DA - ar.C_AD) / (ar.C_DD + ar.C_AA + ar.C_DA + ar.C_AD)
@@ -133,19 +131,35 @@ def load_repo_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
         ar[col] = ar[col].where(~need, val)
 
     # CHSH S-value: present only in newer datasets, and valid only from 2026-06-29 (buggy before);
-    # also treat exact 0 as "not computed". Masked to NaN elsewhere -> panels show N/A. (Source-agnostic:
-    # if the column is absent, chsh_s is all-NaN and the panel simply shows nothing.)
+    # treat exact 0 as "not computed". Masked to NaN elsewhere -> panels show N/A. Source-agnostic:
+    # if the column is absent, chsh_s is all-NaN and the panel simply shows nothing.
     if "CHSH_S_value" in ar.columns:
-        valid = (ar["timestamp"] >= CHSH_VALID_FROM_EPOCH) & (ar["CHSH_S_value"] != 0)
-        ar["chsh_s"] = ar["CHSH_S_value"].where(valid)
+        chsh_s = ar["CHSH_S_value"].where((ar["timestamp"] >= CHSH_VALID_FROM_EPOCH) & (ar["CHSH_S_value"] != 0))
     else:
-        ar["chsh_s"] = np.nan
+        chsh_s = pd.Series(np.nan, index=ar.index)
 
-    # THEORETICAL asymptotic key rate (bits/s); NaN unless a positive secure rate is possible.
-    # Use the SIFTED (same-basis) coincidence rate = corr+err, NOT coinc_rate: total_coincidences
-    # now includes the 8 cross-basis pairs (used for CHSH, discarded in sifting), so coinc_rate would
-    # overcount the key-eligible coincidences.
-    ar["key_rate_theo"] = theoretical_key_rate(ar["corr_rate"] + ar["err_rate"], ar["QBER_total"])
+    # Add all derived columns in ONE concat (many single `ar[col]=` inserts fragment a wide frame).
+    # coinc_rate = all-16 total (link health); key rate uses the SIFTED same-basis rate (corr+err) — NOT
+    # coinc_rate — because total_coincidences now includes the cross-basis (CHSH) pairs, discarded in sifting.
+    ar = pd.concat(
+        [
+            ar,
+            pd.DataFrame(
+                {
+                    "coinc_rate": ar["total_coincidences"] / overlap,
+                    "C_correlated": c_corr,
+                    "C_error": c_err,
+                    "corr_rate": c_corr / overlap,
+                    "err_rate": c_err / overlap,
+                    "vis_recomputed": need,
+                    "chsh_s": chsh_s,
+                    "key_rate_theo": theoretical_key_rate(c_corr / overlap + c_err / overlap, ar["QBER_total"]),
+                },
+                index=ar.index,
+            ),
+        ],
+        axis=1,
+    )
 
     volt = pd.DataFrame(
         it["voltages"].apply(ast.literal_eval).tolist(),
@@ -164,7 +178,6 @@ def load_repo_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
     )
     ar["has_voltage"] = (ar["timestamp"] - nn["_it"]).abs() <= VOLTAGE_JOIN_TOL_S
 
-    ar = ar.copy()  # defragment (we added many columns one-by-one) — silences pandas PerformanceWarning
     return Dataset(
         name="LJ-Drnovo (recorded 2026-06-19 to 07-02, times in Europe/Ljubljana)",
         measurements=ar,
