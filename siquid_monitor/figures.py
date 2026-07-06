@@ -128,7 +128,7 @@ PLOT_MEDIAN_COLS = [
     "corr_rate",
     "err_rate",
     "chsh_s",
-    "key_rate_theo",
+    # key_rate_theo intentionally omitted: fig_security plots it as markers, not a median line.
 ]
 
 
@@ -360,12 +360,13 @@ def fig_headline(m, band=True):
     fig.update_yaxes(title_text="visibility", row=1, col=1, range=[-1, 1])
     fig.update_yaxes(title_text="QBER", row=2, col=1, range=[0, 1])
     fig.update_xaxes(title_text="time (Europe/Ljubljana)", row=2, col=1)
+    span = f"{m.t.min():%Y-%m-%d} to {m.t.max():%Y-%m-%d}"  # derived, not hardcoded -> never stale
     fig.update_layout(
         height=640,
         template="plotly_white",
         margin={"t": 120, "b": 110},
         title={
-            "text": "Headline QKD - replay of recorded LJ-Drnovo data (2026-06-19 to 24, Europe/Ljubljana; not live)",
+            "text": f"Headline QKD - replay of recorded LJ-Drnovo data ({span}, Europe/Ljubljana; not live)",
             "y": 0.98,
             "yanchor": "top",
         },

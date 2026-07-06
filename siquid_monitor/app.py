@@ -88,7 +88,10 @@ def _render(elapsed: float, tab: str = "headline"):
     if vis.empty:
         vis = M.iloc[:1]
     last = vis.iloc[-1]
-    vcolor = "#2f8f3e" if last.visibility >= 1 / 3 else "#c0392b"  # entangled vs separable
+    vis_na = pd.isna(last.visibility)
+    vcolor = "#2f8f3e" if not vis_na and last.visibility >= 1 / 3 else "#c0392b"  # entangled vs separable
+    vis_txt = f"{last.visibility:+.3f}" if not vis_na else "N/A"
+    qber_txt = f"{last.QBER_total * 100:.1f}%" if pd.notna(last.QBER_total) else "N/A"
     # CHSH + theoretical key rate show "N/A" when the value is masked/undefined for this row.
     s = last.get("chsh_s", float("nan"))
     s_txt = f"{s:.2f}" if pd.notna(s) else "N/A"
@@ -96,8 +99,8 @@ def _render(elapsed: float, tab: str = "headline"):
     kr = last.get("key_rate_theo", float("nan"))
     kr_txt = f"{kr:.1f} bit/s" if pd.notna(kr) else "N/A"
     kpis = [
-        _kpi("visibility", f"{last.visibility:+.3f}", vcolor),
-        _kpi("QBER", f"{last.QBER_total * 100:.1f}%"),
+        _kpi("visibility", vis_txt, vcolor),
+        _kpi("QBER", qber_txt),
         _kpi("coincidence rate", _fmt_cps(last.coinc_rate)),
         _kpi("total singles", _fmt_cps(last.singles_total)),
         _kpi("CHSH |S|", s_txt, s_color),
