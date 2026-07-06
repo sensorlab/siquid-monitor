@@ -75,6 +75,8 @@ def _build_panel(tab: str, m, now: float):
         return F.fig_stability(m, V[V.timestamp <= now])  # reveal voltages left-to-right too
     if tab == "diagnostics":
         return F.fig_diagnostics(m)
+    if tab == "security":
+        return F.fig_security(m)
     return F.fig_headline(m)
 
 
@@ -85,11 +87,19 @@ def _render(elapsed: float, tab: str = "headline"):
         vis = M.iloc[:1]
     last = vis.iloc[-1]
     vcolor = "#2f8f3e" if last.visibility >= 1 / 3 else "#c0392b"  # entangled vs separable
+    # CHSH + theoretical key rate show "N/A" when the value is masked/undefined for this row.
+    s = last.get("chsh_s", float("nan"))
+    s_txt = f"{s:.2f}" if pd.notna(s) else "N/A"
+    s_color = "#2f8f3e" if pd.notna(s) and s > 2 else "#222"  # green when Bell-violating
+    kr = last.get("key_rate_theo", float("nan"))
+    kr_txt = f"{kr:.1f} bit/s" if pd.notna(kr) else "N/A"
     kpis = [
         _kpi("visibility", f"{last.visibility:+.3f}", vcolor),
         _kpi("QBER", f"{last.QBER_total * 100:.1f}%"),
         _kpi("coincidence rate", _fmt_cps(last.coinc_rate)),
         _kpi("total singles", _fmt_cps(last.singles_total)),
+        _kpi("CHSH |S|", s_txt, s_color),
+        _kpi("key rate (theo.)", kr_txt),
         _kpi("virtual time (Ljubljana)", to_local(now).strftime("%m-%d %H:%M:%S")),
     ]
     fig = _build_panel(tab, vis, now)
@@ -159,6 +169,7 @@ app.layout = html.Div(
                 dcc.Tab(label="Source / link health", value="source"),
                 dcc.Tab(label="Stability & drift", value="stability"),
                 dcc.Tab(label="Diagnostics", value="diagnostics"),
+                dcc.Tab(label="Security (CHSH + key rate)", value="security"),
             ],
         ),
         dcc.Graph(id="panel"),

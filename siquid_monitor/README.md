@@ -2,7 +2,7 @@
 
 Replays recorded QKD metrics as an **honest, non-live** dashboard. It does not recompute physics;
 it shows logged values with the caveats baked in (delay-biased, not accidental-subtracted,
-non-entangling link). See `../docs/figures.md` (design), `../docs/data.md` (data), `POC_SPEC.md` (this PoC).
+link that worked only intermittently). See `../docs/figures.md` (design), `../docs/data.md` (data), `POC_SPEC.md` (this PoC).
 
 Data source: the partner clone's CSVs under `../external/long-distance-entanglement/Data`
 (centralized in `data.DEFAULT_DATA_DIR`).

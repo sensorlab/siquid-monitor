@@ -8,6 +8,8 @@ photon arrival times; these are clock-aligned, photon coincidences are found, an
 them **visibility** and **QBER** are computed. Only processed CSV/JSON metrics are used
 here — no raw timetags.
 
-This particular run is a **negative result**: across ~10,000 measurements the link never
-reached the entanglement threshold (median QBER ≈ random). It is published as a
-*monitoring-methodology* demonstration, not a working-QKD showcase.
+Across ~23,000 measurements (2026-06-19 to 07-02) the link was **mostly below threshold but
+worked intermittently**: near-random for most of the window, then on **2026-06-29 to 07-01** a
+subset of measurements reached the entanglement threshold and a genuine **CHSH Bell violation**
+(S > 2). It's a realistic monitoring dataset — long stretches of noise with occasional working
+periods — rather than a clean always-on showcase.

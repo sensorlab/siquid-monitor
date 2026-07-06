@@ -8,6 +8,9 @@ bridged; noisy metrics show a faint raw trace plus a descriptive rolling median 
 a ±1σ counting-statistics band is drawn; and reference thresholds (Bell/CHSH, separability,
 QKD security) are shown so distance from "useful" is explicit.
 
-The dashboard has four panels: **Headline** (visibility + QBER), **Source / link health**
+The dashboard has five panels: **Headline** (visibility + QBER), **Source / link health**
 (coincidence + singles rates), **Stability & drift** (polarization-control voltages + sync
-health), and **Diagnostics** (correlated vs error coincidences + per-label delays).
+health), **Diagnostics** (correlated vs error coincidence *rates* + per-label delays), and
+**Security** (CHSH |S| and a **theoretical** secret-key rate). Metrics are shown only where
+available — e.g. CHSH is blank before it was validly recorded, and the theoretical key rate is
+blank wherever a positive secure rate isn't achievable.

@@ -123,8 +123,10 @@ PLOT_MEDIAN_COLS = [
     "QBER_HV",
     "QBER_DA",
     "coinc_rate",
-    "C_correlated",
-    "C_error",
+    "corr_rate",
+    "err_rate",
+    "chsh_s",
+    "key_rate_theo",
 ]
 
 
@@ -479,27 +481,30 @@ def fig_diagnostics(m):
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.07,
-        subplot_titles=("Coincidences: correlated-sum vs error-sum", "Per-label best delay (ps)"),
+        subplot_titles=(
+            "Coincidence rate: correlated vs error (cps) - normalised, exposure changed 10->20 s",
+            "Per-label best delay (ps) - real ~+10 ns step at 06-29 (equipment change)",
+        ),
     )
     raw_plus_median(
         fig,
         m.t,
-        m.C_correlated,
+        m.corr_rate,
         "correlated (HH+VV+DD+AA)",
         "#2f8f3e",
         row=1,
         col=1,
-        median=_med(m, "C_correlated", m.C_correlated),
+        median=_med(m, "corr_rate", m.corr_rate),
     )
     raw_plus_median(
         fig,
         m.t,
-        m.C_error,
+        m.err_rate,
         "error (HV+VH+DA+AD)",
         "#c0392b",
         row=1,
         col=1,
-        median=_med(m, "C_error", m.C_error),
+        median=_med(m, "err_rate", m.err_rate),
     )
     for name in LABELS:
         gl(
@@ -513,14 +518,86 @@ def fig_diagnostics(m):
             dash="solid" if name in CORRELATED else "dot",
         )
     add_optimizer_shading(fig, m)
-    fig.update_yaxes(title_text="counts", row=1, col=1)
+    fig.update_yaxes(title_text="cps", row=1, col=1)
     fig.update_yaxes(title_text="delay (ps)", row=2, col=1)
     fig.update_xaxes(title_text="time (Europe/Ljubljana)", row=2, col=1)
     fig.update_layout(
         height=660,
         template="plotly_white",
         margin={"t": 70, "b": 160},
-        title="Diagnostics (grey = optimizer active; counts not accidental-subtracted)",
+        title="Diagnostics (rates; grey = optimizer active; not accidental-subtracted)",
         legend={"orientation": "h", "y": -0.22, "yanchor": "top"},
+    )
+    return fig
+
+
+def fig_security(m):
+    """CHSH S-value + THEORETICAL key rate. Both show N/A (gaps) where unavailable:
+    CHSH only from 2026-06-29 (valid), key rate only where a positive secure rate is possible."""
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.09,
+        subplot_titles=(
+            "CHSH |S| - Bell violation if > 2 (valid from 2026-06-29; N/A before)",
+            "THEORETICAL secret-key rate (asymptotic BBM92; NOT a measured key; N/A when QBER too high)",
+        ),
+    )
+    raw_plus_median(fig, m.t, m.chsh_s, "CHSH |S|", "#7d3cb5", row=1, col=1, median=_med(m, "chsh_s", m.chsh_s))
+    fig.add_hline(
+        y=2.0,
+        line_dash="dash",
+        line_color="black",
+        row=1,
+        col=1,
+        annotation_text="classical bound S=2",
+        annotation_font_size=9,
+        annotation_position="bottom left",
+    )
+    fig.add_hline(
+        y=2 * 2**0.5,
+        line_dash="dot",
+        line_color="gray",
+        row=1,
+        col=1,
+        annotation_text="Tsirelson 2sqrt2~2.83",
+        annotation_font_size=9,
+        annotation_position="top left",
+    )
+    # key rate is positive on only a handful of rows -> markers, not a line (a line is invisible)
+    fig.add_trace(
+        go.Scattergl(
+            x=pd.to_datetime(np.asarray(m.t)),
+            y=np.asarray(m.key_rate_theo, dtype=float),
+            mode="markers",
+            name="key rate (theoretical)",
+            marker={"size": 7, "color": "#2f8f3e", "line": {"width": 0.5, "color": "#1b5e20"}},
+            hovertemplate="%{y:.2f} bit/s<extra></extra>",
+        ),
+        row=2,
+        col=1,
+    )
+    add_optimizer_shading(fig, m)
+    fig.update_yaxes(title_text="|S|", row=1, col=1, range=[0, 3])
+    fig.update_yaxes(title_text="bits/s (theoretical)", row=2, col=1)
+    fig.update_xaxes(title_text="time (Europe/Ljubljana)", row=2, col=1)
+    fig.update_layout(
+        height=620,
+        template="plotly_white",
+        margin={"t": 120, "b": 100},
+        title="Security metrics - replay of recorded LJ-Drnovo data (not live)",
+        legend={"orientation": "h", "y": -0.16},
+    )
+    fig.add_annotation(
+        xref="paper",
+        yref="paper",
+        x=0,
+        y=1.10,
+        showarrow=False,
+        font={"size": 10, "color": "#a33"},
+        align="left",
+        text="CHSH valid only from 2026-06-29; key rate is a THEORETICAL asymptotic estimate "
+        "(1-(1+f)*h2(QBER)) x coincidence rate, not a measured/distilled key.",
     )
     return fig
