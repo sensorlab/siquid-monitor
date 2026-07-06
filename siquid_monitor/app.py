@@ -25,7 +25,7 @@ from .data import channel_singles, load_repo_dataset, to_local
 
 TICK_MS = 1000  # > worst-case render (~0.8 s at full data) so ticks never back up
 TICK_S = TICK_MS / 1000.0
-SPEEDS = [100, 500, 2000, 10000]  # x real-time; 2000x -> ~3.5 min for 117.6 h
+SPEEDS = [100, 500, 2000, 10000, 50000, 100000]  # x real-time (dataset is ~13 days)
 DEFAULT_SPEED = 2000
 
 # --- load + precompute once --------------------------------------------------
@@ -146,6 +146,13 @@ app.layout = html.Div(
                     n_clicks=0,
                     style={"fontSize": "15px", "padding": "6px 14px"},
                 ),
+                html.Button(
+                    "⏭ Show all",
+                    id="skip-end",
+                    n_clicks=0,
+                    title="Jump to the end — show the whole recording at once",
+                    style={"fontSize": "15px", "padding": "6px 14px"},
+                ),
                 html.Label("Speed:", style={"marginLeft": "8px"}),
                 dcc.Dropdown(
                     id="speed",
@@ -198,15 +205,18 @@ def toggle_play(_n, disabled):
     Output("progress", "children"),
     Input("tick", "n_intervals"),
     Input("reset", "n_clicks"),
+    Input("skip-end", "n_clicks"),
     Input("tab", "value"),
     State("clock", "data"),
     State("speed", "value"),
 )
-def advance(_n, _rs, tab, clock, speed):
+def advance(_n, _rs, _se, tab, clock, speed):
     elapsed = float((clock or {}).get("elapsed", 0.0))
     trig = ctx.triggered_id
     if trig == "reset":
         elapsed = 0.0
+    elif trig == "skip-end":  # jump straight to the full recording
+        elapsed = SPAN
     elif trig == "tick":
         if elapsed >= SPAN:  # already at the end -> stop re-rendering
             raise PreventUpdate

@@ -164,6 +164,7 @@ def load_repo_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
     )
     ar["has_voltage"] = (ar["timestamp"] - nn["_it"]).abs() <= VOLTAGE_JOIN_TOL_S
 
+    ar = ar.copy()  # defragment (we added many columns one-by-one) — silences pandas PerformanceWarning
     return Dataset(
         name="LJ-Drnovo (recorded 2026-06-19 to 07-02, times in Europe/Ljubljana)",
         measurements=ar,
