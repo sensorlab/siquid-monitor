@@ -46,12 +46,18 @@ python -m venv .venv
 ```
 
 The recorded acquisition data comes from the partner acquisition repository. Clone it
-into `external/` (it is not distributed with this project):
+into `external/` (it is not distributed with this project), and **check out the pinned
+commit** below — the partners actively push new data/code to this repo, and everything
+documented here (row counts, figures, screenshots) was validated against that exact state:
 
 ```bash
 git clone https://github.com/Bogfoot/Long-Distance-Entanglement-Distribution-FMF \
     external/long-distance-entanglement
+git -C external/long-distance-entanglement checkout b668dfef8ed7cac2cb13d0552e1f78bbe82066f7
 ```
+
+To pick up newer partner data instead, skip the checkout (or `git pull` later) — the
+loaders are schema-tolerant, but any specific numbers in the docs may then be stale.
 
 ## Run
 
