@@ -329,11 +329,20 @@ def load_mdpuvtp_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
     per-channel singles, sync health, or optimizer voltage log are recorded here, so those columns
     are NaN -- never fabricated; panels that need them simply show N/A for this dataset.
 
-    Two source files (the same two-measurement-mode pattern as LJ-Drnovo's CHSH rows):
+    Two source files:
       - `qber_live_log.csv`: visibility/QBER logged directly; 8 same-basis counts only.
-      - `CHSH/CHSH_S_Log_*.csv`: per-session CHSH runs; S_value + all 16 counts. Visibility/QBER
-        recomputed here from the same-basis counts with the exact LJ-Drnovo formula (verified
-        internally consistent -- same identity vis = 1 - 2*QBER).
+      - `CHSH/CHSH_S_Log_*.csv`: per-session CHSH runs; S_value + all 16 counts.
+
+    Unlike LJ-Drnovo's CHSH rows, these two files are NOT interchangeable same-basis measurements:
+    this campaign's CHSH runs rotate one receiver's analyzer by 22.5 deg relative to the QBER-basis
+    setting (Adrian, 2026-07 partner-feedback thread), so a CHSH file's "C_HH" etc. is a DIFFERENT
+    physical measurement than qber_live_log's "C_HH" -- same column name, incompatible meaning. An
+    earlier version of this loader recomputed vis/QBER from the CHSH rows' same-basis counts (the
+    LJ-Drnovo pattern); that silently mixed the two bases and produced ~15-18% "QBER" for those rows
+    (close to the theoretical mismatch sin^2(22.5 deg) = 14.6%, not real QBER) -- root cause of a
+    partner report that the dashboard showed ~20% QBER when the real (optimized) value is ~2%. Fixed
+    by NOT recomputing anything same-basis-derived (vis/QBER, and C_<label> for the 8 same-basis
+    labels) from CHSH rows; only qber_live_log rows carry those. CHSH rows contribute chsh_s only.
     """
     mdp_dir = Path(data_dir) / "MDPUVTP"
     all_labels = LABELS + CROSS_BASIS  # 8 same-basis + 8 cross-basis
@@ -354,14 +363,13 @@ def load_mdpuvtp_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
     chsh = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["timestamp"])
 
     if not chsh.empty:
-        with np.errstate(divide="ignore", invalid="ignore"):
-            v_hv = (chsh.C_HH + chsh.C_VV - chsh.C_HV - chsh.C_VH) / (chsh.C_HH + chsh.C_VV + chsh.C_HV + chsh.C_VH)
-            v_da = (chsh.C_DD + chsh.C_AA - chsh.C_DA - chsh.C_AD) / (chsh.C_DD + chsh.C_AA + chsh.C_DA + chsh.C_AD)
-        v_tot = (v_hv + v_da) / 2
-        chsh["vis_HV"], chsh["vis_DA"], chsh["visibility"] = v_hv, v_da, v_tot
-        chsh["QBER_HV"], chsh["QBER_DA"], chsh["QBER_total"] = (1 - v_hv) / 2, (1 - v_da) / 2, (1 - v_tot) / 2
         chsh["chsh_s"] = chsh["S_value"]
         chsh["source_mode"] = "chsh"
+        # Do NOT derive vis/QBER from these rows' same-basis counts (see docstring: rotated-basis
+        # mismatch). Blank the same-named same-basis columns so they can never enter a same-basis
+        # aggregate (sifted counts, Poisson sigma, ...) alongside qber_live_log's genuine ones.
+        for lab in LABELS:
+            chsh[f"C_{lab}"] = np.nan
 
     ar = pd.concat([q, chsh], ignore_index=True, sort=False).sort_values("timestamp").reset_index(drop=True)
     ar["t"] = to_local(ar["timestamp"]).dt.floor("ms")
@@ -399,7 +407,7 @@ def load_mdpuvtp_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
                     "C_error": c_err,
                     "corr_rate": np.nan,
                     "err_rate": np.nan,
-                    "vis_recomputed": ar["source_mode"] == "chsh",
+                    "vis_recomputed": False,  # never recomputed here (see load_mdpuvtp_dataset docstring)
                     "key_rate_theo": np.nan,  # needs a coincidence RATE, which this link doesn't log
                     "cum_sifted": cum_sifted,
                     "cum_qber": cum_qber,
