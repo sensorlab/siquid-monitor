@@ -226,6 +226,30 @@ def load_repo_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
     else:
         chsh_s = pd.Series(np.nan, index=ar.index)
 
+    # Accidental-subtracted visibility/QBER (INDICATIVE). The raw metrics count all coincidences,
+    # including the flat accidental background (`accidental_*`), which hits the low-signal error pairs
+    # hardest and biases QBER upward. Here we subtract the logged accidentals per label, floor net counts
+    # at 0, and recompute the per-basis contrast (then average) exactly as the raw metrics do. Caveat:
+    # the accidental estimate itself isn't exact (window may be tau vs 2*tau -- see data.md), so treat
+    # this as a lower-side indicator; the true value lies between raw and subtracted. NaN if the columns
+    # are absent (source-agnostic) so the overlay simply doesn't draw.
+    have_acc = all(f"accidental_{lab}" in ar.columns for lab in LABELS)
+    if have_acc:
+
+        def _net(labs):
+            gross = ar[[f"C_{lab}" for lab in labs]].sum(axis=1)
+            acc = ar[[f"accidental_{lab}" for lab in labs]].sum(axis=1)
+            return (gross - acc).clip(lower=0)
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            v_hv_net = (_net(["HH", "VV"]) - _net(["HV", "VH"])) / (_net(["HH", "VV"]) + _net(["HV", "VH"]))
+            v_da_net = (_net(["DD", "AA"]) - _net(["DA", "AD"])) / (_net(["DD", "AA"]) + _net(["DA", "AD"]))
+        vis_net = (v_hv_net + v_da_net) / 2
+        qber_net = (1 - vis_net) / 2  # same identity as the raw metrics (vis = 1 - 2*QBER)
+    else:
+        vis_net = pd.Series(np.nan, index=ar.index)
+        qber_net = pd.Series(np.nan, index=ar.index)
+
     # EXACT finite-key length, cumulative block model (a): at each measurement accumulate ALL sifted
     # same-basis coincidences and the running QBER since the record start, then solve eqs (20)-(23).
     # For this link the running QBER never approaches the finite-key threshold (stays ~0.37), so l is 0
@@ -258,6 +282,8 @@ def load_repo_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
                     "cum_qber": cum_qber,
                     "key_length_finite": key_length_finite,
                     "key_rate_finite": key_rate_finite,
+                    "vis_net": vis_net,
+                    "QBER_net_total": qber_net,
                 },
                 index=ar.index,
             ),

@@ -82,39 +82,79 @@ def _build_panel(tab: str, m, now: float):
     return F.fig_headline(m)
 
 
-def _render(elapsed: float, tab: str = "headline"):
+def _render_panel(elapsed: float, tab: str):
+    """Build the active panel at the current clock. `uirevision` keeps any user zoom across
+    playback re-renders, so metrics can be read over a zoomed window (see update_kpis)."""
     now = T0 + elapsed
     vis = M[M.timestamp <= now]
     if vis.empty:
         vis = M.iloc[:1]
-    last = vis.iloc[-1]
-    vis_na = pd.isna(last.visibility)
-    vcolor = "#2f8f3e" if not vis_na and last.visibility >= 1 / 3 else "#c0392b"  # entangled vs separable
-    vis_txt = f"{last.visibility:+.3f}" if not vis_na else "N/A"
-    qber_txt = f"{last.QBER_total * 100:.1f}%" if pd.notna(last.QBER_total) else "N/A"
-    # CHSH + theoretical key rate show "N/A" when the value is masked/undefined for this row.
-    s = last.get("chsh_s", float("nan"))
-    s_txt = f"{s:.2f}" if pd.notna(s) else "N/A"
-    s_color = "#2f8f3e" if pd.notna(s) and s > 2 else "#222"  # green when Bell-violating
-    kr = last.get("key_rate_theo", float("nan"))
-    kr_txt = f"{kr:.1f} bit/s" if pd.notna(kr) else "N/A"
-    # EXACT finite-key rate (eps=1e-10), cumulative since replay start; N/A when no secure key accrues.
-    krf = last.get("key_rate_finite", float("nan"))
-    krf_txt = f"{krf:.3f} bit/s" if pd.notna(krf) else "N/A"
-    kpis = [
-        _kpi("visibility", vis_txt, vcolor),
-        _kpi("QBER", qber_txt),
-        _kpi("coincidence rate", _fmt_cps(last.coinc_rate)),
-        _kpi("total singles", _fmt_cps(last.singles_total)),
-        _kpi("CHSH |S|", s_txt, s_color),
-        _kpi("key rate (theo.)", kr_txt),
-        _kpi("finite-key (exact)", krf_txt),
-        _kpi("virtual time (Ljubljana)", to_local(now).strftime("%m-%d %H:%M:%S")),
-    ]
     fig = _build_panel(tab, vis, now)
     fig.update_xaxes(range=[T0_DT, T1_DT])  # fixed full span -> playback reveals left-to-right
+    fig.update_layout(uirevision="keep")
     pct = 100.0 * elapsed / SPAN if SPAN else 100.0
-    return fig, kpis, f"{pct:5.1f}% of {SPAN / 3600:.1f} h"
+    return fig, f"{pct:5.1f}% of {SPAN / 3600:.1f} h"
+
+
+def _zoom_range(relayout):
+    """Parse a Plotly relayoutData dict into (lo, hi) local Timestamps, or None (autorange / full)."""
+    if not relayout or "xaxis.autorange" in relayout:
+        return None
+    r0, r1 = relayout.get("xaxis.range[0]"), relayout.get("xaxis.range[1]")
+    if r0 is None and isinstance(relayout.get("xaxis.range"), (list, tuple)):
+        r0, r1 = relayout["xaxis.range"]
+    if r0 is None or r1 is None:
+        return None
+    try:
+        return pd.to_datetime(r0), pd.to_datetime(r1)
+    except (ValueError, TypeError):
+        return None
+
+
+def _median(w, col):
+    if col not in w.columns:
+        return float("nan")
+    v = w[col].dropna()
+    return float(v.median()) if len(v) else float("nan")
+
+
+def _build_kpis(elapsed: float, relayout, from_zoom: bool):
+    """KPI tiles = the MEDIAN of each metric over the visible window (not the latest single row).
+    Window = the user's zoom if they zoomed, else all data revealed so far (up to the virtual clock)."""
+    now = T0 + elapsed
+    now_local = to_local(now).floor("s")
+    zoom = _zoom_range(relayout) if from_zoom else None
+    lo, hi, zoomed = (zoom[0], zoom[1], True) if zoom else (T0_DT, now_local, False)
+    w = M[(M["t"] >= lo) & (M["t"] <= hi) & (M["timestamp"] <= now)]
+    n = len(w)
+
+    vis, qber, qber_net = _median(w, "visibility"), _median(w, "QBER_total"), _median(w, "QBER_net_total")
+    coinc, singles = _median(w, "coinc_rate"), _median(w, "singles_total")
+    s, kr, krf = _median(w, "chsh_s"), _median(w, "key_rate_theo"), _median(w, "key_rate_finite")
+
+    vcolor = "#2f8f3e" if pd.notna(vis) and vis >= 1 / 3 else "#c0392b"  # entangled vs separable
+    qn_color = "#2f8f3e" if pd.notna(qber_net) and qber_net < 0.11 else "#222"  # below ~11% QKD bound
+    s_color = "#2f8f3e" if pd.notna(s) and s > 2 else "#222"  # Bell-violating
+    pct = lambda q: f"{q * 100:.1f}%" if pd.notna(q) else "N/A"  # noqa: E731
+
+    caption = html.Div(
+        f"metrics below = median over {'zoomed window' if zoomed else 'all revealed data'}: "
+        f"{lo:%m-%d %H:%M} → {hi:%m-%d %H:%M}  ·  N = {n} measurements"
+        f"{'' if zoomed else '  (zoom the plot to focus a window)'}",
+        style={"flexBasis": "100%", "fontSize": "12px", "color": "#555", "marginBottom": "2px"},
+    )
+    tiles = [
+        _kpi("visibility", f"{vis:+.3f}" if pd.notna(vis) else "N/A", vcolor),
+        _kpi("QBER", pct(qber)),
+        _kpi("QBER (accid.-sub.)", pct(qber_net), qn_color),
+        _kpi("coincidence rate", _fmt_cps(coinc) if pd.notna(coinc) else "N/A"),
+        _kpi("total singles", _fmt_cps(singles) if pd.notna(singles) else "N/A"),
+        _kpi("CHSH |S|", f"{s:.2f}" if pd.notna(s) else "N/A", s_color),
+        _kpi("key rate (theo.)", f"{kr:.1f} bit/s" if pd.notna(kr) else "N/A"),
+        _kpi("finite-key (exact)", f"{krf:.3f} bit/s" if pd.notna(krf) else "N/A"),
+        _kpi("virtual time (Ljubljana)", now_local.strftime("%m-%d %H:%M:%S")),
+    ]
+    return [caption, *tiles]
 
 
 # --- app ---------------------------------------------------------------------
@@ -131,7 +171,9 @@ app.layout = html.Div(
     children=[
         html.H2("SiQUID QKD monitor — replay of recorded data (not live)"),
         html.Div(
-            f"Source: {DS.name}.  Values are recorded, delay-biased, not accidental-subtracted.",
+            f"Source: {DS.name}.  Values are recorded and delay-biased; raw traces are NOT "
+            "accidental-subtracted (an indicative accidental-subtracted overlay/metric is shown "
+            "separately). KPIs are medians over the visible window — zoom the plot to focus a timeframe.",
             style={"color": "#a33", "fontSize": "13px", "marginBottom": "10px"},
         ),
         html.Div(
@@ -210,7 +252,6 @@ def toggle_play(_n, disabled):
 @app.callback(
     Output("clock", "data"),
     Output("panel", "figure"),
-    Output("kpis", "children"),
     Output("progress", "children"),
     Input("tick", "n_intervals"),
     Input("reset", "n_clicks"),
@@ -231,8 +272,22 @@ def advance(_n, _rs, _se, tab, clock, speed):
             raise PreventUpdate
         elapsed = min(elapsed + TICK_S * float(speed), SPAN)
     # a tab switch (trig == "tab") just re-renders the new panel at the current clock
-    fig, kpis, progress = _render(elapsed, tab)
-    return {"elapsed": elapsed}, fig, kpis, progress
+    fig, progress = _render_panel(elapsed, tab)
+    return {"elapsed": elapsed}, fig, progress
+
+
+@app.callback(
+    Output("kpis", "children"),
+    Input("panel", "relayoutData"),  # user zoom/pan -> metrics over that window
+    Input("clock", "data"),  # playback tick/reset -> metrics over all revealed data
+    prevent_initial_call=False,
+)
+def update_kpis(relayout, clock):
+    elapsed = float((clock or {}).get("elapsed", 0.0))
+    # Only honour the zoom when the zoom itself is what changed; a clock tick means playback is
+    # advancing, so fall back to the full revealed window (and the panel re-render resets the view).
+    from_zoom = ctx.triggered_id == "panel"
+    return _build_kpis(elapsed, relayout, from_zoom)
 
 
 def main():

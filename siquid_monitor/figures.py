@@ -128,6 +128,8 @@ PLOT_MEDIAN_COLS = [
     "corr_rate",
     "err_rate",
     "chsh_s",
+    "vis_net",  # accidental-subtracted total visibility (headline overlay)
+    "QBER_net_total",  # accidental-subtracted total QBER (headline overlay)
     # key_rate_theo intentionally omitted: fig_security plots it as markers, not a median line.
 ]
 
@@ -314,6 +316,20 @@ def fig_headline(m, band=True):
         )
     for col, name in [("visibility", "total"), ("vis_HV", "H/V"), ("vis_DA", "D/A")]:
         raw_plus_median(fig, m.t, m[col], name, PALETTE[name], row=1, col=1, median=_med(m, col, m[col]))
+    # accidental-subtracted TOTAL (indicative) as a distinct dashed median line over the raw ones
+    if "vis_net" in m.columns:
+        gl(
+            fig,
+            m.t,
+            _med(m, "vis_net", m["vis_net"]),
+            "total (accid.-subtracted)",
+            1,
+            1,
+            width=2.0,
+            color="#8e44ad",
+            dash="dash",
+            legendgroup="net",
+        )
     fig.add_hline(
         y=2**-0.5,
         line_dash="dash",
@@ -336,6 +352,20 @@ def fig_headline(m, band=True):
     )
     for col, name in [("QBER_total", "total"), ("QBER_HV", "H/V"), ("QBER_DA", "D/A")]:
         raw_plus_median(fig, m.t, m[col], name, PALETTE[name], row=2, col=1, median=_med(m, col, m[col]))
+    if "QBER_net_total" in m.columns:
+        gl(
+            fig,
+            m.t,
+            _med(m, "QBER_net_total", m["QBER_net_total"]),
+            "total (accid.-subtracted)",
+            2,
+            1,
+            width=2.0,
+            color="#8e44ad",
+            dash="dash",
+            legendgroup="net",
+            showlegend=False,
+        )
     fig.add_hline(
         y=0.5,
         line_dash="dash",
