@@ -12,7 +12,8 @@ The dashboard has five panels: **Headline** (visibility + QBER), **Source / link
 (coincidence + singles rates), **Stability & drift** (polarization-control voltages + sync
 health), **Diagnostics** (correlated vs error coincidence *rates* + per-label delays), and
 **Security** (CHSH |S|, a **theoretical** asymptotic secret-key rate, and an **exact finite-key**
-rate). Metrics are shown only where available — e.g. CHSH is blank before it was validly recorded,
-the theoretical key rate is blank wherever a positive secure rate isn't achievable, and the
-finite-key rate is blank across this record (the accumulated statistics never reach the level a
-provably-secure key would require).
+rate). A **dataset selector** switches between recorded links (e.g. LJ-Drnovo, UVTP-MDP); each
+panel simply shows whatever that link's acquisition actually logged. Metrics are shown only where
+available — e.g. CHSH is blank wherever a valid value wasn't recorded, the theoretical/finite-key
+rates are blank wherever a positive secure rate isn't achievable or the source link doesn't log a
+coincidence rate at all.

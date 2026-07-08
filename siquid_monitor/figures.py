@@ -396,7 +396,7 @@ def fig_headline(m, band=True):
         template="plotly_white",
         margin={"t": 120, "b": 110},
         title={
-            "text": f"Headline QKD - replay of recorded LJ-Drnovo data ({span}, Europe/Ljubljana; not live)",
+            "text": f"Headline QKD - replay of recorded data ({span}, Europe/Ljubljana; not live)",
             "y": 0.98,
             "yanchor": "top",
         },
@@ -571,15 +571,17 @@ def fig_diagnostics(m):
 
 
 def fig_security(m):
-    """CHSH S-value + THEORETICAL key rate. Both show N/A (gaps) where unavailable:
-    CHSH only from 2026-06-29 (valid), key rate only where a positive secure rate is possible."""
+    """CHSH S-value + THEORETICAL key rate. Both show N/A (gaps) where unavailable: CHSH wherever the
+    source dataset doesn't provide a valid S (masked upstream, e.g. LJ-Drnovo pre-2026-06-29), key rate
+    only where a positive secure rate is computable (needs a coincidence RATE, which not every source
+    dataset logs -- see data.md)."""
     fig = make_subplots(
         rows=2,
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.09,
         subplot_titles=(
-            "CHSH |S| - Bell violation if > 2 (valid from 2026-06-29; N/A before)",
+            "CHSH |S| - Bell violation if > 2 (N/A where not computed for this dataset)",
             "Secret-key rate: THEORETICAL asymptotic + EXACT finite-key (eps=1e-10); N/A when insecure",
         ),
     )
@@ -639,7 +641,7 @@ def fig_security(m):
         height=620,
         template="plotly_white",
         margin={"t": 120, "b": 100},
-        title="Security metrics - replay of recorded LJ-Drnovo data (not live)",
+        title="Security metrics - replay of recorded data (not live)",
         legend={"orientation": "h", "y": -0.16},
     )
     fig.add_annotation(
@@ -650,7 +652,7 @@ def fig_security(m):
         showarrow=False,
         font={"size": 10, "color": "#a33"},
         align="left",
-        text="CHSH valid from 2026-06-29 only. Asymptotic = infinite-block ceiling 1-(1+f)*h2(QBER) x sifted "
-        "rate (not a distilled key); finite-key (Novak 2025, eps=1e-10) = the EXACT result (<= asymptotic), N/A here.",
+        text="Asymptotic = infinite-block ceiling 1-(1+f)*h2(QBER) x sifted rate (not a distilled key, "
+        "N/A if no coincidence rate is logged); finite-key (Novak 2025, eps=1e-10) = the EXACT result (<= asymptotic).",
     )
     return fig

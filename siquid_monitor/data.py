@@ -308,10 +308,123 @@ def load_repo_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
     )
     ar["has_voltage"] = (ar["timestamp"] - nn["_it"]).abs() <= VOLTAGE_JOIN_TOL_S
 
+    span = f"{ar['t'].min():%Y-%m-%d} to {ar['t'].max():%Y-%m-%d}"  # derived, not hardcoded -> never stale
     return Dataset(
-        name="LJ-Drnovo (recorded 2026-06-19 to 07-02, times in Europe/Ljubljana)",
+        name=f"LJ-Drnovo (recorded {span}, times in Europe/Ljubljana)",
         measurements=ar,
         voltages=it,
+    )
+
+
+# Cross-basis coincidence labels (added for CHSH; not part of the acquisition's own PAIRS/LABELS map).
+CROSS_BASIS = ["HA", "HD", "VA", "VD", "DH", "DV", "AH", "AV"]
+
+
+def load_mdpuvtp_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
+    """Load the UVTP-MDP metropolitan-link CSVs (Adrian's long-promised upload, landed under
+    Data/MDPUVTP/ on 2026-07-08) into a Dataset with the same column shape as `load_repo_dataset`,
+    so the existing figures work unchanged.
+
+    Much sparser acquisition than LJ-Drnovo: no `overlap_duration_sec`, accidentals, delays,
+    per-channel singles, sync health, or optimizer voltage log are recorded here, so those columns
+    are NaN -- never fabricated; panels that need them simply show N/A for this dataset.
+
+    Two source files (the same two-measurement-mode pattern as LJ-Drnovo's CHSH rows):
+      - `qber_live_log.csv`: visibility/QBER logged directly; 8 same-basis counts only.
+      - `CHSH/CHSH_S_Log_*.csv`: per-session CHSH runs; S_value + all 16 counts. Visibility/QBER
+        recomputed here from the same-basis counts with the exact LJ-Drnovo formula (verified
+        internally consistent -- same identity vis = 1 - 2*QBER).
+    """
+    mdp_dir = Path(data_dir) / "MDPUVTP"
+    all_labels = LABELS + CROSS_BASIS  # 8 same-basis + 8 cross-basis
+
+    q = pd.read_csv(mdp_dir / "qber_live_log.csv").rename(columns={"visibility_mean": "visibility"})
+    q["source_mode"] = "qber"
+    q["chsh_s"] = np.nan
+
+    frames = []
+    for f in sorted((mdp_dir / "CHSH").glob("CHSH_S_Log_*.csv")):
+        try:
+            df = pd.read_csv(f)
+        except (pd.errors.EmptyDataError, pd.errors.ParserError):
+            continue  # a few CHSH_S_Log files are near-empty (aborted short sessions)
+        if df.empty or "timestamp" not in df.columns or "S_value" not in df.columns:
+            continue
+        frames.append(df)
+    chsh = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["timestamp"])
+
+    if not chsh.empty:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            v_hv = (chsh.C_HH + chsh.C_VV - chsh.C_HV - chsh.C_VH) / (chsh.C_HH + chsh.C_VV + chsh.C_HV + chsh.C_VH)
+            v_da = (chsh.C_DD + chsh.C_AA - chsh.C_DA - chsh.C_AD) / (chsh.C_DD + chsh.C_AA + chsh.C_DA + chsh.C_AD)
+        v_tot = (v_hv + v_da) / 2
+        chsh["vis_HV"], chsh["vis_DA"], chsh["visibility"] = v_hv, v_da, v_tot
+        chsh["QBER_HV"], chsh["QBER_DA"], chsh["QBER_total"] = (1 - v_hv) / 2, (1 - v_da) / 2, (1 - v_tot) / 2
+        chsh["chsh_s"] = chsh["S_value"]
+        chsh["source_mode"] = "chsh"
+
+    ar = pd.concat([q, chsh], ignore_index=True, sort=False).sort_values("timestamp").reset_index(drop=True)
+    ar["t"] = to_local(ar["timestamp"]).dt.floor("ms")
+
+    # Columns the shared figures/app code reads but this acquisition never logs -> NaN (source-agnostic;
+    # a panel that needs one of these just renders empty for this dataset instead of guessing).
+    for lab in all_labels:
+        if f"C_{lab}" not in ar.columns:
+            ar[f"C_{lab}"] = np.nan
+        ar[f"delay_{lab}_ps"] = np.nan
+        ar[f"accidental_{lab}"] = np.nan
+    for lab in LABELS:  # per-channel singles are only meaningful via the acquisition's own PAIRS map
+        ar[f"alice_events_{lab}"] = np.nan
+        ar[f"bob_events_{lab}"] = np.nan
+    ar["overlap_duration_sec"] = np.nan
+    ar["sync_skew_ppm_mean"] = np.nan
+    ar["sync_common_markers"] = np.nan
+
+    c_corr = ar[[f"C_{lab}" for lab in CORRELATED]].sum(axis=1, min_count=1)
+    c_err = ar[[f"C_{lab}" for lab in ERRORS]].sum(axis=1, min_count=1)
+    cum_sifted = (c_corr + c_err).cumsum()
+    cum_qber = (c_err.cumsum() / cum_sifted).where(cum_sifted > 0)
+    key_length_finite = finite_key_length(cum_sifted.to_numpy(), cum_qber.to_numpy())
+    elapsed_s = (ar["timestamp"] - ar["timestamp"].iloc[0]).clip(lower=0).to_numpy()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        key_rate_finite = np.where((key_length_finite > 0) & (elapsed_s > 0), key_length_finite / elapsed_s, np.nan)
+
+    ar = pd.concat(
+        [
+            ar,
+            pd.DataFrame(
+                {
+                    "coinc_rate": np.nan,  # no overlap_duration_sec logged -> no honest rate to show
+                    "C_correlated": c_corr,
+                    "C_error": c_err,
+                    "corr_rate": np.nan,
+                    "err_rate": np.nan,
+                    "vis_recomputed": ar["source_mode"] == "chsh",
+                    "key_rate_theo": np.nan,  # needs a coincidence RATE, which this link doesn't log
+                    "cum_sifted": cum_sifted,
+                    "cum_qber": cum_qber,
+                    "key_length_finite": key_length_finite,
+                    "key_rate_finite": key_rate_finite,
+                    "vis_net": np.nan,  # no accidental_* logged for this link
+                    "QBER_net_total": np.nan,
+                    "has_voltage": False,
+                },
+                index=ar.index,
+            ),
+        ],
+        axis=1,
+    )
+
+    # No optimizer voltage log for this link; empty frame with the columns fig_stability expects.
+    volt = pd.DataFrame({"timestamp": pd.Series(dtype=float), "t": pd.Series(dtype="datetime64[ns]")})
+    for i in range(8):
+        volt[f"V{i}"] = pd.Series(dtype=float)
+
+    span = f"{ar['t'].min():%Y-%m-%d} to {ar['t'].max():%Y-%m-%d}"
+    return Dataset(
+        name=f"UVTP-MDP metropolitan link (recorded {span}, times in Europe/Ljubljana)",
+        measurements=ar,
+        voltages=volt,
     )
 
 

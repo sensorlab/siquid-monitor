@@ -21,27 +21,41 @@ from dash import Dash, Input, Output, State, ctx, dcc, html
 from dash.exceptions import PreventUpdate
 
 from . import figures as F
-from .data import channel_singles, load_repo_dataset, to_local
+from .data import channel_singles, load_mdpuvtp_dataset, load_repo_dataset, to_local
 
 TICK_MS = 1000  # > worst-case render (~0.8 s at full data) so ticks never back up
 TICK_S = TICK_MS / 1000.0
-SPEEDS = [100, 500, 2000, 10000, 50000, 100000]  # x real-time (dataset is ~13 days)
+SPEEDS = [100, 500, 2000, 10000, 50000, 100000]  # x real-time (LJ-Drnovo dataset is ~19 days)
 DEFAULT_SPEED = 2000
+DEFAULT_DATASET = "LJ-Drnovo"
 
-# --- load + precompute once --------------------------------------------------
-DS = load_repo_dataset()  # DEFAULT_DATA_DIR = external/…/Data
-M = DS.measurements
-V = DS.voltages
-M["singles_total"] = channel_singles(M).sum(axis=1)  # cps, precomputed (cheap per-tick KPI)
-F.precompute_medians(M)  # precompute medians -> near-constant per-tick render
-F.precompute_poisson(M)  # precompute Poisson 1σ band for the headline
-T0 = float(M.timestamp.min())
-T1 = float(M.timestamp.max())
-SPAN = T1 - T0
-# floor to seconds: epoch-float -> Timestamp carries nonzero nanoseconds, which Plotly warns about
-# when serialising the fixed x-axis range. (The measurements' `t` column is likewise floored, to ms.)
-T0_DT = to_local(T0).floor("s")  # Europe/Ljubljana, matches the measurements' `t` column
-T1_DT = to_local(T1).floor("s")
+
+class _Loaded:
+    """One preloaded, precomputed dataset (figures/KPIs are read straight from these fields)."""
+
+    def __init__(self, ds):
+        self.ds = ds
+        self.m = ds.measurements
+        self.v = ds.voltages
+        # cps; min_count=1 -> NaN (not 0) when a dataset logs no per-channel singles at all
+        # (e.g. UVTP-MDP, which has no overlap_duration_sec), so the KPI honestly shows N/A.
+        self.m["singles_total"] = channel_singles(self.m).sum(axis=1, min_count=1)
+        F.precompute_medians(self.m)
+        F.precompute_poisson(self.m)
+        self.t0 = float(self.m.timestamp.min())
+        self.t1 = float(self.m.timestamp.max())
+        self.span = self.t1 - self.t0
+        # floor to seconds: epoch-float -> Timestamp carries nonzero nanoseconds, which Plotly warns
+        # about when serialising the fixed x-axis range (the `t` column is likewise floored, to ms).
+        self.t0_dt = to_local(self.t0).floor("s")
+        self.t1_dt = to_local(self.t1).floor("s")
+
+
+# --- load + precompute once, for every selectable dataset --------------------
+DATASETS = {
+    "LJ-Drnovo": _Loaded(load_repo_dataset()),  # DEFAULT_DATA_DIR = external/…/Data
+    "UVTP-MDP": _Loaded(load_mdpuvtp_dataset()),
+}
 
 
 def _fmt_cps(x: float) -> str:
@@ -68,13 +82,13 @@ def _kpi(label: str, value: str, color: str = "#222") -> html.Div:
     )
 
 
-def _build_panel(tab: str, m, now: float):
+def _build_panel(tab: str, m, v, now: float):
     """Build the figure for the active tab from the visible slice `m`. Only the active
     panel is built per tick, so render cost stays ~constant regardless of how many panels exist."""
     if tab == "source":
         return F.fig_source(m)
     if tab == "stability":
-        return F.fig_stability(m, V[V.timestamp <= now])  # reveal voltages left-to-right too
+        return F.fig_stability(m, v[v.timestamp <= now])  # reveal voltages left-to-right too
     if tab == "diagnostics":
         return F.fig_diagnostics(m)
     if tab == "security":
@@ -82,18 +96,19 @@ def _build_panel(tab: str, m, now: float):
     return F.fig_headline(m)
 
 
-def _render_panel(elapsed: float, tab: str):
+def _render_panel(ds_key: str, elapsed: float, tab: str):
     """Build the active panel at the current clock. `uirevision` keeps any user zoom across
-    playback re-renders, so metrics can be read over a zoomed window (see update_kpis)."""
-    now = T0 + elapsed
-    vis = M[M.timestamp <= now]
+    playback re-renders (but resets on a dataset switch, since the time domain changes)."""
+    d = DATASETS[ds_key]
+    now = d.t0 + elapsed
+    vis = d.m[d.m.timestamp <= now]
     if vis.empty:
-        vis = M.iloc[:1]
-    fig = _build_panel(tab, vis, now)
-    fig.update_xaxes(range=[T0_DT, T1_DT])  # fixed full span -> playback reveals left-to-right
-    fig.update_layout(uirevision="keep")
-    pct = 100.0 * elapsed / SPAN if SPAN else 100.0
-    return fig, f"{pct:5.1f}% of {SPAN / 3600:.1f} h"
+        vis = d.m.iloc[:1]
+    fig = _build_panel(tab, vis, d.v, now)
+    fig.update_xaxes(range=[d.t0_dt, d.t1_dt])  # fixed full span -> playback reveals left-to-right
+    fig.update_layout(uirevision=ds_key)
+    pct = 100.0 * elapsed / d.span if d.span else 100.0
+    return fig, f"{pct:5.1f}% of {d.span / 3600:.1f} h"
 
 
 def _zoom_range(relayout):
@@ -118,14 +133,15 @@ def _median(w, col):
     return float(v.median()) if len(v) else float("nan")
 
 
-def _build_kpis(elapsed: float, relayout, from_zoom: bool):
+def _build_kpis(ds_key: str, elapsed: float, relayout, from_zoom: bool):
     """KPI tiles = the MEDIAN of each metric over the visible window (not the latest single row).
     Window = the user's zoom if they zoomed, else all data revealed so far (up to the virtual clock)."""
-    now = T0 + elapsed
+    d = DATASETS[ds_key]
+    now = d.t0 + elapsed
     now_local = to_local(now).floor("s")
     zoom = _zoom_range(relayout) if from_zoom else None
-    lo, hi, zoomed = (zoom[0], zoom[1], True) if zoom else (T0_DT, now_local, False)
-    w = M[(M["t"] >= lo) & (M["t"] <= hi) & (M["timestamp"] <= now)]
+    lo, hi, zoomed = (zoom[0], zoom[1], True) if zoom else (d.t0_dt, now_local, False)
+    w = d.m[(d.m["t"] >= lo) & (d.m["t"] <= hi) & (d.m["timestamp"] <= now)]
     n = len(w)
 
     vis, qber, qber_net = _median(w, "visibility"), _median(w, "QBER_total"), _median(w, "QBER_net_total")
@@ -171,9 +187,7 @@ app.layout = html.Div(
     children=[
         html.H2("SiQUID QKD monitor — replay of recorded data (not live)"),
         html.Div(
-            f"Source: {DS.name}.  Values are recorded and delay-biased; raw traces are NOT "
-            "accidental-subtracted (an indicative accidental-subtracted overlay/metric is shown "
-            "separately). KPIs are medians over the visible window — zoom the plot to focus a timeframe.",
+            id="source-info",
             style={"color": "#a33", "fontSize": "13px", "marginBottom": "10px"},
         ),
         html.Div(
@@ -185,6 +199,14 @@ app.layout = html.Div(
                 "marginBottom": "12px",
             },
             children=[
+                html.Label("Dataset:"),
+                dcc.Dropdown(
+                    id="dataset-select",
+                    value=DEFAULT_DATASET,
+                    clearable=False,
+                    options=[{"label": k, "value": k} for k in DATASETS],
+                    style={"width": "160px"},
+                ),
                 html.Button(
                     "⏸ Pause",
                     id="play-pause",
@@ -250,6 +272,19 @@ def toggle_play(_n, disabled):
 
 
 @app.callback(
+    Output("source-info", "children"),
+    Input("dataset-select", "value"),
+)
+def update_source_info(ds_key):
+    d = DATASETS[ds_key]
+    return (
+        f"Source: {d.ds.name}.  Values are recorded and delay-biased; raw traces are NOT "
+        "accidental-subtracted (an indicative accidental-subtracted overlay/metric is shown where "
+        "available). KPIs are medians over the visible window — zoom the plot to focus a timeframe."
+    )
+
+
+@app.callback(
     Output("clock", "data"),
     Output("panel", "figure"),
     Output("progress", "children"),
@@ -257,37 +292,41 @@ def toggle_play(_n, disabled):
     Input("reset", "n_clicks"),
     Input("skip-end", "n_clicks"),
     Input("tab", "value"),
+    Input("dataset-select", "value"),
     State("clock", "data"),
     State("speed", "value"),
 )
-def advance(_n, _rs, _se, tab, clock, speed):
-    elapsed = float((clock or {}).get("elapsed", 0.0))
+def advance(_n, _rs, _se, tab, ds_key, clock, speed):
+    clock = clock or {}
+    elapsed = float(clock.get("elapsed", 0.0))
+    d = DATASETS[ds_key]
     trig = ctx.triggered_id
-    if trig == "reset":
-        elapsed = 0.0
+    if trig == "reset" or trig == "dataset-select" or clock.get("dataset") != ds_key:
+        elapsed = 0.0  # switching dataset changes the time domain -> start it fresh
     elif trig == "skip-end":  # jump straight to the full recording
-        elapsed = SPAN
+        elapsed = d.span
     elif trig == "tick":
-        if elapsed >= SPAN:  # already at the end -> stop re-rendering
+        if elapsed >= d.span:  # already at the end -> stop re-rendering
             raise PreventUpdate
-        elapsed = min(elapsed + TICK_S * float(speed), SPAN)
+        elapsed = min(elapsed + TICK_S * float(speed), d.span)
     # a tab switch (trig == "tab") just re-renders the new panel at the current clock
-    fig, progress = _render_panel(elapsed, tab)
-    return {"elapsed": elapsed}, fig, progress
+    fig, progress = _render_panel(ds_key, elapsed, tab)
+    return {"elapsed": elapsed, "dataset": ds_key}, fig, progress
 
 
 @app.callback(
     Output("kpis", "children"),
     Input("panel", "relayoutData"),  # user zoom/pan -> metrics over that window
     Input("clock", "data"),  # playback tick/reset -> metrics over all revealed data
+    Input("dataset-select", "value"),
     prevent_initial_call=False,
 )
-def update_kpis(relayout, clock):
+def update_kpis(relayout, clock, ds_key):
     elapsed = float((clock or {}).get("elapsed", 0.0))
-    # Only honour the zoom when the zoom itself is what changed; a clock tick means playback is
-    # advancing, so fall back to the full revealed window (and the panel re-render resets the view).
+    # Only honour the zoom when the zoom itself is what changed; a clock tick or dataset switch
+    # falls back to the full revealed window (and the panel re-render resets the view).
     from_zoom = ctx.triggered_id == "panel"
-    return _build_kpis(elapsed, relayout, from_zoom)
+    return _build_kpis(ds_key, elapsed, relayout, from_zoom)
 
 
 def main():
