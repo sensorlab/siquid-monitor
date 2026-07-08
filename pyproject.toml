@@ -24,6 +24,7 @@ dependencies = [
     "plotly>=6.0",
     "pandas>=2.0",
     "numpy>=2.0",
+    "scipy>=1.11",  # numerical optimization for the exact finite-key length (Novak 2025, eqs 20-23)
 ]
 
 [project.optional-dependencies]

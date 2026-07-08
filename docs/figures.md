@@ -11,6 +11,8 @@ QKD security) are shown so distance from "useful" is explicit.
 The dashboard has five panels: **Headline** (visibility + QBER), **Source / link health**
 (coincidence + singles rates), **Stability & drift** (polarization-control voltages + sync
 health), **Diagnostics** (correlated vs error coincidence *rates* + per-label delays), and
-**Security** (CHSH |S| and a **theoretical** secret-key rate). Metrics are shown only where
-available — e.g. CHSH is blank before it was validly recorded, and the theoretical key rate is
-blank wherever a positive secure rate isn't achievable.
+**Security** (CHSH |S|, a **theoretical** asymptotic secret-key rate, and an **exact finite-key**
+rate). Metrics are shown only where available — e.g. CHSH is blank before it was validly recorded,
+the theoretical key rate is blank wherever a positive secure rate isn't achievable, and the
+finite-key rate is blank across this record (the accumulated statistics never reach the level a
+provably-secure key would require).

@@ -550,7 +550,7 @@ def fig_security(m):
         vertical_spacing=0.09,
         subplot_titles=(
             "CHSH |S| - Bell violation if > 2 (valid from 2026-06-29; N/A before)",
-            "THEORETICAL secret-key rate (asymptotic BBM92; NOT a measured key; N/A when QBER too high)",
+            "Secret-key rate: THEORETICAL asymptotic + EXACT finite-key (eps=1e-10); N/A when insecure",
         ),
     )
     raw_plus_median(fig, m.t, m.chsh_s, "CHSH |S|", "#7d3cb5", row=1, col=1, median=_med(m, "chsh_s", m.chsh_s))
@@ -580,9 +580,23 @@ def fig_security(m):
             x=pd.to_datetime(np.asarray(m.t)),
             y=np.asarray(m.key_rate_theo, dtype=float),
             mode="markers",
-            name="key rate (theoretical)",
+            name="asymptotic (theoretical)",
             marker={"size": 7, "color": "#2f8f3e", "line": {"width": 0.5, "color": "#1b5e20"}},
             hovertemplate="%{y:.2f} bit/s<extra></extra>",
+        ),
+        row=2,
+        col=1,
+    )
+    # EXACT finite-key rate (eps=1e-10), cumulative block. For this link it is N/A everywhere (the running
+    # QBER never nears the finite-key threshold); plotted so the metric is present and honestly empty.
+    fig.add_trace(
+        go.Scattergl(
+            x=pd.to_datetime(np.asarray(m.t)),
+            y=np.asarray(m.key_rate_finite, dtype=float),
+            mode="markers",
+            name="finite-key (exact, eps=1e-10)",
+            marker={"size": 7, "symbol": "diamond", "color": "#b5432f", "line": {"width": 0.5, "color": "#7a2617"}},
+            hovertemplate="%{y:.3f} bit/s<extra></extra>",
         ),
         row=2,
         col=1,
@@ -606,7 +620,7 @@ def fig_security(m):
         showarrow=False,
         font={"size": 10, "color": "#a33"},
         align="left",
-        text="CHSH valid only from 2026-06-29; key rate is a THEORETICAL asymptotic estimate "
-        "(1-(1+f)*h2(QBER)) x coincidence rate, not a measured/distilled key.",
+        text="CHSH valid from 2026-06-29 only. Asymptotic = infinite-block ceiling 1-(1+f)*h2(QBER) x sifted "
+        "rate (not a distilled key); finite-key (Novak 2025, eps=1e-10) = the EXACT result (<= asymptotic), N/A here.",
     )
     return fig

@@ -98,6 +98,9 @@ def _render(elapsed: float, tab: str = "headline"):
     s_color = "#2f8f3e" if pd.notna(s) and s > 2 else "#222"  # green when Bell-violating
     kr = last.get("key_rate_theo", float("nan"))
     kr_txt = f"{kr:.1f} bit/s" if pd.notna(kr) else "N/A"
+    # EXACT finite-key rate (eps=1e-10), cumulative since replay start; N/A when no secure key accrues.
+    krf = last.get("key_rate_finite", float("nan"))
+    krf_txt = f"{krf:.3f} bit/s" if pd.notna(krf) else "N/A"
     kpis = [
         _kpi("visibility", vis_txt, vcolor),
         _kpi("QBER", qber_txt),
@@ -105,6 +108,7 @@ def _render(elapsed: float, tab: str = "headline"):
         _kpi("total singles", _fmt_cps(last.singles_total)),
         _kpi("CHSH |S|", s_txt, s_color),
         _kpi("key rate (theo.)", kr_txt),
+        _kpi("finite-key (exact)", krf_txt),
         _kpi("virtual time (Ljubljana)", to_local(now).strftime("%m-%d %H:%M:%S")),
     ]
     fig = _build_panel(tab, vis, now)
