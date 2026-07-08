@@ -1,0 +1,5 @@
+# Keep the external/ folder in the repo, but ignore everything placed in it.
+# Partner repositories (e.g. long-distance-entanglement, novak-qkd) are cloned here
+# as pristine, untracked checkouts — see the root README.
+*
+!.gitignore

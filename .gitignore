@@ -281,8 +281,8 @@ $RECYCLE.BIN/
 
 
 
-# External partner clone (kept as a pristine nested checkout, not tracked here)
-external/
+# External partner clones live under external/ (pristine nested checkouts, not tracked here).
+# The folder itself is preserved via external/.gitignore, which ignores all of its contents.
 
 # Internal source-of-truth docs (never published; docs/ is the generated public subset)
 internal/
