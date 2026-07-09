@@ -197,26 +197,27 @@ def load_repo_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
     ar["t"] = to_local(ar["timestamp"]).dt.floor("ms")
     it["t"] = to_local(it["timestamp"]).dt.floor("ms")
     overlap = ar["overlap_duration_sec"]
-    c_corr = ar[[f"C_{lab}" for lab in CORRELATED]].sum(axis=1)
-    c_err = ar[[f"C_{lab}" for lab in ERRORS]].sum(axis=1)
 
-    # CHSH-mode rows (from 2026-06-24) log CHSH but leave visibility/QBER blank, though their same-basis
-    # counts ARE present. Recompute those from C_* with the exact logged formula (verified byte-identical
-    # on standard rows) so visibility/QBER are continuous. Fill ONLY blanks (assigns to EXISTING columns).
+    # CHSH-mode rows (from 2026-06-24) log CHSH but leave visibility/QBER blank, even though their
+    # same-basis counts ARE present. An earlier version of this loader recomputed vis/QBER from those
+    # counts, assuming (as for a standard row) that all 16 correlators reflect one consistent basis
+    # alignment. Adrian confirmed (2026-07 email thread) that assumption is WRONG here too: CHSH
+    # measurement on this link also requires a different (EPC-driven) basis alignment than QBER --
+    # "yes for CHSH it is the case for the way we are doing it" -- so a CHSH-mode row's same-basis
+    # counts do not represent the same physical measurement as a standard row's (same root cause, and
+    # same fix, as load_mdpuvtp_dataset's CHSH rows). Do NOT recompute vis/QBER from them, and blank
+    # their same-basis C_<label> counts too so they can't leak into any same-basis aggregate below
+    # (sifted counts, Poisson sigma, key rate, ...). `need` flags these rows (no valid same-basis
+    # measurement); kept as `vis_recomputed` below for backward-compatible callers, even though
+    # nothing is recomputed anymore.
     need = ar["QBER_total"].isna()
-    with np.errstate(divide="ignore", invalid="ignore"):
-        v_hv = (ar.C_HH + ar.C_VV - ar.C_HV - ar.C_VH) / (ar.C_HH + ar.C_VV + ar.C_HV + ar.C_VH)
-        v_da = (ar.C_DD + ar.C_AA - ar.C_DA - ar.C_AD) / (ar.C_DD + ar.C_AA + ar.C_DA + ar.C_AD)
-    v_tot = (v_hv + v_da) / 2
-    for col, val in [
-        ("vis_HV", v_hv),
-        ("vis_DA", v_da),
-        ("visibility", v_tot),
-        ("QBER_HV", (1 - v_hv) / 2),
-        ("QBER_DA", (1 - v_da) / 2),
-        ("QBER_total", (1 - v_tot) / 2),
-    ]:
-        ar[col] = ar[col].where(~need, val)
+    for lab in LABELS:
+        ar.loc[need, f"C_{lab}"] = np.nan
+    # min_count=1: an all-NaN (CHSH-mode) row must sum to NaN, not 0 -- otherwise corr_rate/err_rate
+    # (plotted directly in fig_diagnostics) would show a fabricated flat drop to zero instead of an
+    # honest gap during the ~36% of rows now excluded above.
+    c_corr = ar[[f"C_{lab}" for lab in CORRELATED]].sum(axis=1, min_count=1)
+    c_err = ar[[f"C_{lab}" for lab in ERRORS]].sum(axis=1, min_count=1)
 
     # CHSH S-value: present only in newer datasets, and valid only from 2026-06-29 (buggy before);
     # treat exact 0 as "not computed". Masked to NaN elsewhere -> panels show N/A. Source-agnostic:
