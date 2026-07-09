@@ -53,7 +53,7 @@ documented here (row counts, figures, screenshots) was validated against that ex
 ```bash
 git clone https://github.com/Bogfoot/Long-Distance-Entanglement-Distribution-FMF \
     external/long-distance-entanglement
-git -C external/long-distance-entanglement checkout b668dfef8ed7cac2cb13d0552e1f78bbe82066f7
+git -C external/long-distance-entanglement checkout f5f50874a24fafd1119847163a8b08d41e7b9d0e
 ```
 
 To pick up newer partner data instead, skip the checkout (or `git pull` later) — the
