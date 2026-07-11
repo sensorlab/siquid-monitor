@@ -160,6 +160,13 @@ DEFAULT_DATA_DIR = (
     else Path(__file__).resolve().parent.parent / "external" / "long-distance-entanglement" / "Data"
 )
 
+# One-off file Adrian emailed directly (not through the GitHub pipeline, 2026-07-11): a richer
+# 8h MDPUVTP monitoring-period log with columns (overlap_duration_sec, accidentals, delays,
+# per-channel singles) the GitHub-hosted MDPUVTP files never log. Not tied to $SIQUID_DATA_DIR
+# since it isn't part of the partner's regular data drop; load_mdpuvtp_dataset() skips it quietly
+# if absent (e.g. a fresh clone without the emailed attachment).
+ADRIAN_MAIL_DIR = Path(__file__).resolve().parent.parent / "external" / "adrian-mail"
+
 
 def to_local(epoch):
     """Epoch seconds (UTC) -> tz-naive Europe/Ljubljana wall-clock (for display).
@@ -327,23 +334,34 @@ def load_mdpuvtp_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
     so the existing figures work unchanged.
 
     Much sparser acquisition than LJ-Drnovo: no `overlap_duration_sec`, accidentals, delays,
-    per-channel singles, sync health, or optimizer voltage log are recorded here, so those columns
-    are NaN -- never fabricated; panels that need them simply show N/A for this dataset.
+    per-channel singles, sync health, or optimizer voltage log are recorded in the two GitHub
+    source files, so those columns are NaN for their rows -- never fabricated; panels that need
+    them simply show N/A. The optional third source below (Adrian's emailed file) DOES carry
+    those columns, for its own rows only.
 
-    Two source files:
+    Three source files:
       - `qber_live_log.csv`: visibility/QBER logged directly; 8 same-basis counts only.
       - `CHSH/CHSH_S_Log_*.csv`: per-session CHSH runs; S_value + all 16 counts.
+      - `ADRIAN_MAIL_DIR/MDP_UVTP_8h_log.csv` (optional, emailed 2026-07-11, not via GitHub): a
+        richer 8h monitoring-period log -- same 8 same-basis labels as qber_live_log, but WITH
+        overlap_duration_sec, accidental_<label>, delay_<label>_ps, and per-channel singles. No
+        CHSH columns at all. Confirmed NOT a duplicate of either GitHub file: it starts ~1h12m
+        after qber_live_log/CHSH_S_Log's last 2025-11-19 row, and no filename or content hash
+        matches anywhere in external/long-distance-entanglement (see data.md's "2026-07-11 pull"
+        update-log entry). Loaded like a third `qber`-mode source; skipped quietly if the file
+        isn't present (e.g. a fresh clone without the emailed attachment).
 
-    Unlike LJ-Drnovo's CHSH rows, these two files are NOT interchangeable same-basis measurements:
-    this campaign's CHSH runs rotate one receiver's analyzer by 22.5 deg relative to the QBER-basis
-    setting (Adrian, 2026-07 partner-feedback thread), so a CHSH file's "C_HH" etc. is a DIFFERENT
-    physical measurement than qber_live_log's "C_HH" -- same column name, incompatible meaning. An
-    earlier version of this loader recomputed vis/QBER from the CHSH rows' same-basis counts (the
-    LJ-Drnovo pattern); that silently mixed the two bases and produced ~15-18% "QBER" for those rows
-    (close to the theoretical mismatch sin^2(22.5 deg) = 14.6%, not real QBER) -- root cause of a
-    partner report that the dashboard showed ~20% QBER when the real (optimized) value is ~2%. Fixed
-    by NOT recomputing anything same-basis-derived (vis/QBER, and C_<label> for the 8 same-basis
-    labels) from CHSH rows; only qber_live_log rows carry those. CHSH rows contribute chsh_s only.
+    Unlike LJ-Drnovo's CHSH rows, the qber-mode and CHSH-mode files here are NOT interchangeable
+    same-basis measurements: this campaign's CHSH runs rotate one receiver's analyzer by 22.5 deg
+    relative to the QBER-basis setting (Adrian, 2026-07 partner-feedback thread), so a CHSH file's
+    "C_HH" etc. is a DIFFERENT physical measurement than qber_live_log's "C_HH" -- same column
+    name, incompatible meaning. An earlier version of this loader recomputed vis/QBER from the CHSH
+    rows' same-basis counts (the LJ-Drnovo pattern); that silently mixed the two bases and produced
+    ~15-18% "QBER" for those rows (close to the theoretical mismatch sin^2(22.5 deg) = 14.6%, not
+    real QBER) -- root cause of a partner report that the dashboard showed ~20% QBER when the real
+    (optimized) value is ~2%. Fixed by NOT recomputing anything same-basis-derived (vis/QBER, and
+    C_<label> for the 8 same-basis labels) from CHSH rows; only qber-mode rows carry those. CHSH
+    rows contribute chsh_s only.
     """
     mdp_dir = Path(data_dir) / "MDPUVTP"
     all_labels = LABELS + CROSS_BASIS  # 8 same-basis + 8 cross-basis
@@ -351,6 +369,14 @@ def load_mdpuvtp_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
     q = pd.read_csv(mdp_dir / "qber_live_log.csv").rename(columns={"visibility_mean": "visibility"})
     q["source_mode"] = "qber"
     q["chsh_s"] = np.nan
+
+    qber_frames = [q]
+    extra_path = ADRIAN_MAIL_DIR / "MDP_UVTP_8h_log.csv"
+    if extra_path.exists():
+        extra = pd.read_csv(extra_path)
+        extra["source_mode"] = "qber"
+        extra["chsh_s"] = np.nan
+        qber_frames.append(extra)
 
     frames = []
     for f in sorted((mdp_dir / "CHSH").glob("CHSH_S_Log_*.csv")):
@@ -368,25 +394,32 @@ def load_mdpuvtp_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
         chsh["source_mode"] = "chsh"
         # Do NOT derive vis/QBER from these rows' same-basis counts (see docstring: rotated-basis
         # mismatch). Blank the same-named same-basis columns so they can never enter a same-basis
-        # aggregate (sifted counts, Poisson sigma, ...) alongside qber_live_log's genuine ones.
+        # aggregate (sifted counts, Poisson sigma, ...) alongside the qber-mode rows' genuine ones.
         for lab in LABELS:
             chsh[f"C_{lab}"] = np.nan
 
-    ar = pd.concat([q, chsh], ignore_index=True, sort=False).sort_values("timestamp").reset_index(drop=True)
+    ar = pd.concat([*qber_frames, chsh], ignore_index=True, sort=False).sort_values("timestamp").reset_index(drop=True)
     ar["t"] = to_local(ar["timestamp"]).dt.floor("ms")
 
-    # Columns the shared figures/app code reads but this acquisition never logs -> NaN (source-agnostic;
-    # a panel that needs one of these just renders empty for this dataset instead of guessing).
+    # Columns some source(s) never log -> NaN, but only where NO source provides them at all --
+    # source-agnostic (a panel needing one just renders empty where it's absent) and preserves the
+    # emailed file's real accidentals/delays/singles/overlap_duration_sec for its own rows (a blanket
+    # overwrite here would silently wipe them back to NaN).
     for lab in all_labels:
         if f"C_{lab}" not in ar.columns:
             ar[f"C_{lab}"] = np.nan
-        ar[f"delay_{lab}_ps"] = np.nan
-        ar[f"accidental_{lab}"] = np.nan
+        if f"delay_{lab}_ps" not in ar.columns:
+            ar[f"delay_{lab}_ps"] = np.nan
+        if f"accidental_{lab}" not in ar.columns:
+            ar[f"accidental_{lab}"] = np.nan
     for lab in LABELS:  # per-channel singles are only meaningful via the acquisition's own PAIRS map
-        ar[f"alice_events_{lab}"] = np.nan
-        ar[f"bob_events_{lab}"] = np.nan
-    ar["overlap_duration_sec"] = np.nan
-    ar["sync_skew_ppm_mean"] = np.nan
+        if f"alice_events_{lab}" not in ar.columns:
+            ar[f"alice_events_{lab}"] = np.nan
+        if f"bob_events_{lab}" not in ar.columns:
+            ar[f"bob_events_{lab}"] = np.nan
+    if "overlap_duration_sec" not in ar.columns:
+        ar["overlap_duration_sec"] = np.nan
+    ar["sync_skew_ppm_mean"] = np.nan  # no source logs sync health for this link
     ar["sync_common_markers"] = np.nan
 
     c_corr = ar[[f"C_{lab}" for lab in CORRELATED]].sum(axis=1, min_count=1)
@@ -398,24 +431,51 @@ def load_mdpuvtp_dataset(data_dir: str | Path = DEFAULT_DATA_DIR) -> Dataset:
     with np.errstate(divide="ignore", invalid="ignore"):
         key_rate_finite = np.where((key_length_finite > 0) & (elapsed_s > 0), key_length_finite / elapsed_s, np.nan)
 
+    # Accidental-subtracted visibility/QBER (INDICATIVE) -- same idea as load_repo_dataset, but only
+    # the emailed file's rows have real accidental_* values; qber_live_log/CHSH rows have NaN there.
+    # min_count=1 (not the default 0) is essential here: with a bare .sum(axis=1), two all-NaN
+    # accidental_* columns would sum to 0.0 (pandas' skipna default), silently treating "no
+    # accidental data logged" as "zero accidentals" and leaking a fake net==raw result for
+    # qber_live_log/CHSH rows. min_count=1 makes an all-NaN row sum to NaN, which then propagates
+    # through the subtraction/division to a correct NaN (N/A) for every row lacking accidentals.
+    overlap = ar["overlap_duration_sec"]
+    have_acc = all(f"accidental_{lab}" in ar.columns for lab in LABELS)
+    if have_acc:
+
+        def _net(labs):
+            gross = ar[[f"C_{lab}" for lab in labs]].sum(axis=1, min_count=1)
+            acc = ar[[f"accidental_{lab}" for lab in labs]].sum(axis=1, min_count=1)
+            return (gross - acc).clip(lower=0)
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            v_hv_net = (_net(["HH", "VV"]) - _net(["HV", "VH"])) / (_net(["HH", "VV"]) + _net(["HV", "VH"]))
+            v_da_net = (_net(["DD", "AA"]) - _net(["DA", "AD"])) / (_net(["DD", "AA"]) + _net(["DA", "AD"]))
+        vis_net = (v_hv_net + v_da_net) / 2
+        qber_net = (1 - vis_net) / 2
+    else:
+        vis_net = pd.Series(np.nan, index=ar.index)
+        qber_net = pd.Series(np.nan, index=ar.index)
+
     ar = pd.concat(
         [
             ar,
             pd.DataFrame(
                 {
-                    "coinc_rate": np.nan,  # no overlap_duration_sec logged -> no honest rate to show
+                    # NaN where overlap_duration_sec is NaN (qber_live_log/CHSH rows); real where
+                    # the emailed file logged it.
+                    "coinc_rate": ar["total_coincidences"] / overlap if "total_coincidences" in ar.columns else np.nan,
                     "C_correlated": c_corr,
                     "C_error": c_err,
-                    "corr_rate": np.nan,
-                    "err_rate": np.nan,
+                    "corr_rate": c_corr / overlap,
+                    "err_rate": c_err / overlap,
                     "vis_recomputed": False,  # never recomputed here (see load_mdpuvtp_dataset docstring)
-                    "key_rate_theo": np.nan,  # needs a coincidence RATE, which this link doesn't log
+                    "key_rate_theo": theoretical_key_rate(c_corr / overlap + c_err / overlap, ar["QBER_total"]),
                     "cum_sifted": cum_sifted,
                     "cum_qber": cum_qber,
                     "key_length_finite": key_length_finite,
                     "key_rate_finite": key_rate_finite,
-                    "vis_net": np.nan,  # no accidental_* logged for this link
-                    "QBER_net_total": np.nan,
+                    "vis_net": vis_net,
+                    "QBER_net_total": qber_net,
                     "has_voltage": False,
                 },
                 index=ar.index,
